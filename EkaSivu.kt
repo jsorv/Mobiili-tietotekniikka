@@ -22,11 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import android.content.res.Configuration
-import android.os.Build.VERSION_CODES.R
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import androidx.activity.viewModels
+
 import com.example.composetutorial.ui.theme.ComposeTutorialTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.getValue
@@ -41,19 +37,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.graphics.drawable.toDrawable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.navigation.NavHostController
-import androidx.navigation.Navigation.findNavController
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.findNavController
 import androidx.room.Room
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
+import android.app.PendingIntent
+import android.content.Intent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 
 
 class EkaSivu : ComponentActivity() {
@@ -66,8 +73,20 @@ class EkaSivu : ComponentActivity() {
         ).fallbackToDestructiveMigration()
             .build()
     }
+
+    private lateinit var sensorHandler: SensorHandler
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        createNotificationChannel(this)
+        requestNotificationPermission(this)
+        sensorHandler = SensorHandler(this)
+
+        val x = intent.getFloatExtra("xValue", Float.NaN)
+        val y = intent.getFloatExtra("yValue", Float.NaN)
+        val z = intent.getFloatExtra("zValue", Float.NaN)
+        val acceleration = intent.getFloatExtra("acceleration", Float.NaN)
+
         setContent {
             val navController = rememberNavController()
             val viewModel: ContactViewModel = viewModel(
@@ -78,10 +97,164 @@ class EkaSivu : ComponentActivity() {
                 }
             )
 
+            var showDialog by remember { mutableStateOf(!x.isNaN()) }
+
+            var sensorData by remember {
+                mutableStateOf(SensorData(x, y, z, acceleration))
+            }
+
+            LaunchedEffect(Unit) {
+                sensorHandler.onSensorValuesChanged = { x, y, z, acceleration ->
+                    sensorData = SensorData(x, y, z, acceleration)
+                }
+            }
+
             ComposeTutorialTheme {
-                Navigation(navController, viewModel)
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        NotificationButton(
+                            context = this@EkaSivu,
+                            x = sensorData.x,
+                            y = sensorData.y,
+                            z = sensorData.z,
+                            acceleration = sensorData.acceleration
+                        )
+
+                        PreviewConversation(navController)
+                    }
+
+                    if (showDialog) {
+                        SensorDataDialog(
+                            x = sensorData.x,
+                            y = sensorData.y,
+                            z = sensorData.z,
+                            acceleration = sensorData.acceleration,
+                            onDismiss = { showDialog = false } // Sulje dialogi
+                        )
+                    }
+                }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::sensorHandler.isInitialized) {
+            sensorHandler.stopListening()
+        }
+    }
+}
+
+data class SensorData(val x: Float, val y: Float, val z: Float, val acceleration: Float)
+
+
+fun createNotificationChannel(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channel = NotificationChannel(
+            "sensor_channel",
+            "Sensor Alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        )
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+    }
+}
+
+fun sendNotification(context: Context, x: Float, y: Float, z: Float, acceleration: Float) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+    }
+
+    val intent = Intent(context, EkaSivu::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        putExtra("xValue", x)
+        putExtra("yValue", y)
+        putExtra("zValue", z)
+        putExtra("acceleration", acceleration)
+    }
+    val pendingIntent = PendingIntent.getActivity(
+        context, 0, intent, PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val notification = NotificationCompat.Builder(context, "sensor_channel")
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle("Sensor Triggered!")
+        .setContentText("Tap to view sensor data.")
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setContentIntent(pendingIntent)
+        .setAutoCancel(true)
+        .build()
+
+    NotificationManagerCompat.from(context).notify(1, notification)
+}
+
+@Composable
+fun SensorDataDialog(
+    x: Float,
+    y: Float,
+    z: Float,
+    acceleration: Float,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Sensor Data") },
+        text = {
+            Column {
+                Text(text = "X: ${"%.2f".format(x)}")
+                Text(text = "Y: ${"%.2f".format(y)}")
+                Text(text = "Z: ${"%.2f".format(z)}")
+                Text(text = "Acceleration: ${"%.2f".format(acceleration)}")
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+
+fun requestNotificationPermission(activity: ComponentActivity) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                activity,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                101 // Request code
+            )
+        }
+    }
+}
+
+@Composable
+fun NotificationButton(
+    context: Context,
+    x: Float,
+    y: Float,
+    z: Float,
+    acceleration: Float
+) {
+    Button(
+        onClick = {
+            sendNotification(context, x, y, z, acceleration)
+        },
+        modifier = Modifier
+            .padding(16.dp)
+            .fillMaxWidth()
+    ) {
+        Text("Send Notification")
     }
 }
 
