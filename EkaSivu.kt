@@ -53,13 +53,19 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.activity.viewModels
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.delay
 
 
@@ -98,6 +104,7 @@ class EkaSivu : ComponentActivity() {
             )
 
             var showDialog by remember { mutableStateOf(!x.isNaN()) }
+            var capturedImageUri by remember { mutableStateOf<Uri?>(null) }
 
             var sensorData by remember {
                 mutableStateOf(SensorData(x, y, z, acceleration))
@@ -120,7 +127,9 @@ class EkaSivu : ComponentActivity() {
                             acceleration = sensorData.acceleration
                         )
 
-                        PreviewConversation(navController)
+                        Navigation(navController, viewModel, capturedImageUri) { uri ->
+                            capturedImageUri = uri
+                        }
                     }
 
                     if (showDialog) {
@@ -268,9 +277,22 @@ fun Conversation(messages: List<Message>) {
 }
 
 @Composable
-fun PreviewConversation(navController: NavController) {
+fun PreviewConversation(navController: NavController, imageUri: Uri?) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Viestit", modifier = Modifier.padding(bottom = 8.dp))
+        Text("Messages", modifier = Modifier.padding(bottom = 8.dp))
+
+        // ✅ Display last captured image
+        imageUri?.let {
+            Image(
+                painter = rememberAsyncImagePainter(it),
+                contentDescription = "Last Captured Image",
+                modifier = Modifier
+                    .size(200.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .align(Alignment.CenterHorizontally)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(SampleData.conversationSample) { message ->
@@ -285,6 +307,13 @@ fun PreviewConversation(navController: NavController) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("To contacts")
+        }
+
+        Button(
+            onClick = { navController.navigate("camera") },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Camera")
         }
     }
 }
@@ -346,8 +375,3 @@ fun PreviewMessageCard() {
         }
     }
 }
-
-
-
-
-

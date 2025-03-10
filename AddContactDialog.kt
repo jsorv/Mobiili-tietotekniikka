@@ -1,12 +1,15 @@
 package com.example.composetutorial
 
+import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +32,7 @@ import androidx.compose.ui.draw.clip
 
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
 import coil.compose.rememberAsyncImagePainter
@@ -38,24 +42,21 @@ import coil.compose.rememberAsyncImagePainter
 fun AddContactDialog(
     state: ContactState,
     onEvent: (ContactEvent) -> Unit,
-    modifier: Modifier = Modifier // Set default value to avoid errors
+    selectedImageUri: Uri?,
+    modifier: Modifier = Modifier
 ) {
 
     val context = LocalContext.current
-    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var imageUri by remember { mutableStateOf(selectedImageUri) }
+
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val file = File(context.filesDir, "contact_${System.currentTimeMillis()}.jpg")
-            val outputStream = FileOutputStream(file)
-            inputStream?.copyTo(outputStream)
-            inputStream?.close()
-            outputStream.close()
-            selectedImageUri = Uri.fromFile(file)
-            onEvent(ContactEvent.SetImageUri(Uri.fromFile(file).toString())) // Store image URI
+            val savedUri = saveImageToInternalStorage(context, uri)
+            imageUri = savedUri
+            onEvent(ContactEvent.SetImageUri(savedUri.toString()))
         }
     }
 
@@ -86,11 +87,20 @@ fun AddContactDialog(
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { imagePicker.launch("image/*") }) {
-                    Text(text = "Select Image")
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(onClick = { imagePicker.launch("image/*") }) {
+                        Text(text = "Gallery")
+                    }
+
                 }
 
-                state.imageUri?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                selectedImageUri?.let {
                     Image(
                         painter = rememberAsyncImagePainter(it),
                         contentDescription = "Contact Image",
@@ -116,4 +126,21 @@ fun AddContactDialog(
             }
         }
     )
+}
+
+fun saveImageToInternalStorage(context: Context, imageUri: Uri): Uri {
+    val filename = "contact_${System.currentTimeMillis()}.jpg"
+    val file = File(context.filesDir, filename)
+
+    try {
+        val inputStream = context.contentResolver.openInputStream(imageUri)
+        val outputStream = FileOutputStream(file)
+        inputStream?.copyTo(outputStream)
+        inputStream?.close()
+        outputStream.close()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
+    return Uri.fromFile(file)
 }
